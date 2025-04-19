@@ -52,6 +52,12 @@ Voltrix היא תוכנה גרפית (GUI) מבוססת Python להצפנה ופ
     *   Windows: `%APPDATA%\Voltrix`
     *   Linux/macOS: `~/.config/Voltrix` או `~/.Voltrix`
 *   קובצי לוג (`log_MM-YYYY.txt`) נשמרים באותה התיקייה.
+*   
+
+### Building with pyinstaller
+```
+pyinstaller "C:\dev\voltrix\Voltrix.py" --noconsole --onefile --icon="C:\dev\Voltrix\icon.ico"
+```
 
 ## מחבר
 
