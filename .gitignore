@@ -1,5 +1,5 @@
-Voltrix.spec
 dist
 build
 release
 *.spec
+*.exe

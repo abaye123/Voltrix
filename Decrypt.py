@@ -32,7 +32,7 @@ def decrypt_file(serial, input_file, output_file=None, temp_mode=False):
         with open(output_file, "wb") as f:
             f.write(decrypted_data)
         
-        print("\U0001F513 File decrypted successfully!")
+        print("File decrypted successfully!")
         return output_file
 
 def main():

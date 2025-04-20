@@ -192,67 +192,81 @@ class SettingsDialog(QDialog):
         }
 
 def get_hardware_identifiers():
-
     identifiers = {}
     
-
+    # CPU ID
     try:
-        process = subprocess.Popen("wmic cpu get ProcessorId", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            ["powershell", "-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty ProcessorId"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            cpu_id = re.search(r'[A-Z0-9]{30,}', stdout.decode())
+            cpu_id = stdout.decode().strip()
             if cpu_id:
-                identifiers["cpu"] = cpu_id.group(0).strip()
+                identifiers["cpu"] = cpu_id
     except Exception as e:
         write_log(f"Error getting CPU serial number: {str(e)}")
     
-
+    # Motherboard Serial
     try:
-        process = subprocess.Popen("wmic baseboard get SerialNumber", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            ["powershell", "-Command", "Get-CimInstance -ClassName Win32_BaseBoard | Select-Object -ExpandProperty SerialNumber"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            mb_serial = re.sub(r'SerialNumber\s*', '', stdout.decode()).strip()
+            mb_serial = stdout.decode().strip()
             if mb_serial and mb_serial.lower() not in ["none", "to be filled by o.e.m.", "default string"]:
                 identifiers["motherboard"] = mb_serial
     except Exception as e:
         write_log(f"Error getting motherboard serial number: {str(e)}")
     
-
+    # Disk Serial
     try:
-        process = subprocess.Popen("wmic diskdrive get SerialNumber", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            ["powershell", "-Command", "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object -ExpandProperty SerialNumber"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
             lines = stdout.decode().strip().split('\n')
-            if len(lines) > 1:
-                hdd_serial = lines[1].strip()
+            if lines:
+                hdd_serial = lines[0].strip()
                 if hdd_serial:
                     identifiers["hdd"] = hdd_serial
     except Exception as e:
         write_log(f"Error getting disk serial number: {str(e)}")
     
-
+    # MAC Address
     try:
-        process = subprocess.Popen("wmic nic where PhysicalAdapter=True get MACAddress", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            ["powershell", "-Command", "Get-CimInstance -ClassName Win32_NetworkAdapter -Filter \"PhysicalAdapter=True\" | Select-Object -ExpandProperty MACAddress"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            mac_addresses = re.findall(r'([0-9A-F]{2}[:-][0-9A-F]{2}[:-][0-9A-F]{2}[:-][0-9A-F]{2}[:-][0-9A-F]{2}[:-][0-9A-F]{2})', stdout.decode())
-            if mac_addresses:
+            mac_addresses = stdout.decode().strip().split('\n')
+            if mac_addresses and mac_addresses[0]:
                 identifiers["mac"] = mac_addresses[0].replace(':', '-')
     except Exception as e:
         write_log(f"Error getting MAC address: {str(e)}")
     
-
+    # BIOS Serial
     try:
-        process = subprocess.Popen("wmic bios get SerialNumber", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            ["powershell", "-Command", "Get-CimInstance -ClassName Win32_BIOS | Select-Object -ExpandProperty SerialNumber"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            bios_serial = re.sub(r'SerialNumber\s*', '', stdout.decode()).strip()
+            bios_serial = stdout.decode().strip()
             if bios_serial and bios_serial.lower() not in ["none", "to be filled by o.e.m.", "default string"]:
                 identifiers["bios"] = bios_serial
     except Exception as e:
         write_log(f"Error getting BIOS serial number: {str(e)}")
     
-
+    # Machine UUID
     try:
         identifiers["uuid"] = str(uuid.getnode())
     except Exception as e:
@@ -880,24 +894,28 @@ class MainWindow(QMainWindow):
         self.usb_combo.clear()
         devices = []
         
-        command = "wmic logicaldisk where DriveType=2 get DeviceID, VolumeName"
-        write_log(f"Command: {command}")
+        command = ["powershell", "-Command", "Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DriveType=2\" | Select-Object DeviceID, VolumeName | Format-Table -AutoSize"]
+        write_log(f"Command: {' '.join(command)}")
         
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
         
         if process.returncode == 0:
-            output = stdout.decode().strip().split("\n")[1:]
-            write_log(f"WMIC output:\n{stdout.decode()}")
+            output = stdout.decode().strip().split("\n")
+            write_log(f"PowerShell output:\n{stdout.decode()}")
             
-            for line in output:
+            # Skip header lines (at least 2 lines: header and separator)
+            data_lines = [line.strip() for line in output if line.strip() and not line.startswith("DeviceID") and not line.startswith("---")]
+            
+            for line in data_lines:
+                # Extract DeviceID and VolumeName from the line
                 parts = line.strip().split()
-                if len(parts) >= 1:
-                    if len(parts) == 2:
-                        drive_letter, volume_name = parts
+                if parts:
+                    drive_letter = parts[0]
+                    if len(parts) > 1:
+                        volume_name = ' '.join(parts[1:])
                         devices.append(f"{volume_name} ({drive_letter})")
-                    elif len(parts) == 1:
-                        drive_letter = parts[0]
+                    else:
                         devices.append(f"Unknown ({drive_letter})")
         else:
             error_message = stderr.decode()
@@ -922,18 +940,22 @@ class MainWindow(QMainWindow):
             
             try:
                 device_letter = serial.split(" (")[1].split(")")[0]
-                command = f"wmic logicaldisk where DeviceID='{device_letter}' get VolumeSerialNumber"
-                write_log(f"Command: {command}")
+                command = ["powershell", "-Command", f"Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='{device_letter}'\" | Select-Object -ExpandProperty VolumeSerialNumber"]
+                write_log(f"Command: {' '.join(command)}")
                 
-                process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = process.communicate()
                 
                 if process.returncode == 0:
                     try:
-                        serial_number = stdout.decode().strip().split("\n")[1].strip()
-                        write_log(f"USB serial number: {serial_number}")
-                        return serial_number
-                    except IndexError:
+                        serial_number = stdout.decode().strip()
+                        if serial_number:
+                            write_log(f"USB serial number: {serial_number}")
+                            return serial_number
+                        else:
+                            QMessageBox.critical(self, "שגיאה", "לא הצלחתי לקבל מספר סידורי")
+                            return None
+                    except Exception:
                         QMessageBox.critical(self, "שגיאה", "לא הצלחתי לקבל מספר סידורי")
                         return None
                 else:
@@ -1025,8 +1047,8 @@ class MainWindow(QMainWindow):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         
-        #decrypt_command = f'python Decrypt.exe {serial_number} "{file_path}"'
-        decrypt_command = f'Decrypt.exe {serial_number} "{file_path}"'
+        decrypt_command = f'python Decrypt.py {serial_number} "{file_path}"'
+        #decrypt_command = f'Decrypt.exe {serial_number} "{file_path}"'
         write_log(f"Decryption command: {decrypt_command}")
         
         process = subprocess.Popen(decrypt_command, shell=True, stdout=subprocess.PIPE, 
@@ -1037,7 +1059,7 @@ class MainWindow(QMainWindow):
             stdout_text = stdout.decode('utf-8')
         except UnicodeDecodeError:
             stdout_text = stdout.decode('utf-8', errors='replace')
-            
+        
         write_log(f"Decryption output:\n{stdout_text}")
         
         if process.returncode == 0:
