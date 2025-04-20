@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+from subprocess import CREATE_NO_WINDOW
 import json
 import uuid
 import re
@@ -171,7 +172,7 @@ class SettingsDialog(QDialog):
         security_layout = QVBoxLayout()
         security_group.setLayout(security_layout)
         
-        self.delete_original_check = QCheckBox("מחיקת קובץ מקורי לאחר פעולה מוצלחת")
+        self.delete_original_check = QCheckBox("מחיקת קובץ מקורי לאחר ההצפנה")
         self.delete_original_check.setChecked(self.config.get("delete_original", False))
         security_layout.addWidget(self.delete_original_check)
         
@@ -210,8 +211,9 @@ def get_hardware_identifiers():
     try:
         process = subprocess.Popen(
             ["powershell", "-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty ProcessorId"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW
         )
+        
         stdout, stderr = process.communicate()
         if process.returncode == 0:
             try:
@@ -227,7 +229,7 @@ def get_hardware_identifiers():
     try:
         process = subprocess.Popen(
             ["powershell", "-Command", "Get-CimInstance -ClassName Win32_BaseBoard | Select-Object -ExpandProperty SerialNumber"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
@@ -244,7 +246,7 @@ def get_hardware_identifiers():
     try:
         process = subprocess.Popen(
             ["powershell", "-Command", "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object -ExpandProperty SerialNumber"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
@@ -263,7 +265,7 @@ def get_hardware_identifiers():
     try:
         process = subprocess.Popen(
             ["powershell", "-Command", "Get-CimInstance -ClassName Win32_NetworkAdapter -Filter \"PhysicalAdapter=True\" | Select-Object -ExpandProperty MACAddress"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
@@ -280,7 +282,7 @@ def get_hardware_identifiers():
     try:
         process = subprocess.Popen(
             ["powershell", "-Command", "Get-CimInstance -ClassName Win32_BIOS | Select-Object -ExpandProperty SerialNumber"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
@@ -927,7 +929,7 @@ class MainWindow(QMainWindow):
         command = ["powershell", "-Command", "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DriveType=2\" | ForEach-Object { Write-Output ($_.DeviceID + '|' + $_.VolumeName) }"]
         write_log(f"Command: {' '.join(command)}")
         
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
         stdout, stderr = process.communicate()
         
         if process.returncode == 0:
@@ -958,7 +960,7 @@ class MainWindow(QMainWindow):
                         try:
                             # Try to get the volume name directly with a different encoding approach
                             vol_cmd = ["powershell", "-Command", f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='{drive_letter}'\" | Select-Object -ExpandProperty VolumeName)"]
-                            vol_process = subprocess.Popen(vol_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            vol_process = subprocess.Popen(vol_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
                             vol_stdout, vol_stderr = vol_process.communicate()
                             
                             if vol_process.returncode == 0 and vol_stdout.strip():
@@ -1012,7 +1014,7 @@ class MainWindow(QMainWindow):
                 command = ["powershell", "-Command", f"Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='{device_letter}'\" | Select-Object -ExpandProperty VolumeSerialNumber"]
                 write_log(f"Command: {' '.join(command)}")
                 
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
                 stdout, stderr = process.communicate()
                 
                 if process.returncode == 0:
@@ -1083,7 +1085,7 @@ class MainWindow(QMainWindow):
         write_log(f"Encryption command: {encrypt_command}")
         
         process = subprocess.Popen(encrypt_command, shell=True, stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE, env=env)
+                                  stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW, env=env)
         stdout, stderr = process.communicate()
         
         try:
@@ -1130,12 +1132,12 @@ class MainWindow(QMainWindow):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         
-        decrypt_command = f'python Decrypt.py {serial_number} "{file_path}"'
-        #decrypt_command = f'Decrypt.exe {serial_number} "{file_path}"'
+        #decrypt_command = f'python Decrypt.py {serial_number} "{file_path}"'
+        decrypt_command = f'Decrypt.exe {serial_number} "{file_path}"'
         write_log(f"Decryption command: {decrypt_command}")
         
         process = subprocess.Popen(decrypt_command, shell=True, stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE, env=env)
+                                  stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW, env=env)
         stdout, stderr = process.communicate()
         
         try:
@@ -1189,7 +1191,7 @@ class MainWindow(QMainWindow):
         write_log(f"Temporary decryption command: {decrypt_command}")
         
         process = subprocess.Popen(decrypt_command, shell=True, stdout=subprocess.PIPE, 
-                                 stderr=subprocess.PIPE, env=env)
+                                 stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW, env=env)
         stdout, stderr = process.communicate()
         
         try:
@@ -1263,7 +1265,7 @@ class MainWindow(QMainWindow):
         write_log(f"Temporary decryption command for opening with: {decrypt_command}")
         
         process = subprocess.Popen(decrypt_command, shell=True, stdout=subprocess.PIPE, 
-                                 stderr=subprocess.PIPE, env=env)
+                                 stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW, env=env)
         stdout, stderr = process.communicate()
         
         try:
