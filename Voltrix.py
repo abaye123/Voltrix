@@ -32,6 +32,7 @@ if not os.path.exists(APP_DATA_DIR):
 
 
 CONFIG_FILE = os.path.join(APP_DATA_DIR, "config.json")
+VERSION = "v2.1.0"
 
 now = datetime.now()
 log_filename = f"log_{now.strftime('%m-%Y')}.txt"
@@ -85,7 +86,7 @@ class AboutDialog(QDialog):
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
-        version_label = QLabel("v2.0.0")
+        version_label = QLabel(VERSION)
         version_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(version_label)
         
@@ -166,6 +167,16 @@ class SettingsDialog(QDialog):
         self.enable_logging_check.setChecked(self.config.get("enable_logging", True))
         save_layout.addWidget(self.enable_logging_check)
         
+        security_group = QGroupBox("אבטחה")
+        security_layout = QVBoxLayout()
+        security_group.setLayout(security_layout)
+        
+        self.delete_original_check = QCheckBox("מחיקת קובץ מקורי לאחר פעולה מוצלחת")
+        self.delete_original_check.setChecked(self.config.get("delete_original", False))
+        security_layout.addWidget(self.delete_original_check)
+        
+        save_layout.addWidget(security_group)
+        
         layout.addWidget(save_group)
         
         layout.addStretch()
@@ -188,7 +199,8 @@ class SettingsDialog(QDialog):
         return {
             "dark_mode": self.dark_mode_check.isChecked(),
             "auto_refresh": self.auto_refresh_check.isChecked(),
-            "enable_logging": self.enable_logging_check.isChecked()
+            "enable_logging": self.enable_logging_check.isChecked(),
+            "delete_original": self.delete_original_check.isChecked()
         }
 
 def get_hardware_identifiers():
@@ -202,7 +214,10 @@ def get_hardware_identifiers():
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            cpu_id = stdout.decode().strip()
+            try:
+                cpu_id = stdout.decode('utf-8').strip()
+            except UnicodeDecodeError:
+                cpu_id = stdout.decode('utf-8', errors='replace').strip()
             if cpu_id:
                 identifiers["cpu"] = cpu_id
     except Exception as e:
@@ -216,7 +231,10 @@ def get_hardware_identifiers():
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            mb_serial = stdout.decode().strip()
+            try:
+                mb_serial = stdout.decode('utf-8').strip()
+            except UnicodeDecodeError:
+                mb_serial = stdout.decode('utf-8', errors='replace').strip()
             if mb_serial and mb_serial.lower() not in ["none", "to be filled by o.e.m.", "default string"]:
                 identifiers["motherboard"] = mb_serial
     except Exception as e:
@@ -230,7 +248,10 @@ def get_hardware_identifiers():
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            lines = stdout.decode().strip().split('\n')
+            try:
+                lines = stdout.decode('utf-8').strip().split('\n')
+            except UnicodeDecodeError:
+                lines = stdout.decode('utf-8', errors='replace').strip().split('\n')
             if lines:
                 hdd_serial = lines[0].strip()
                 if hdd_serial:
@@ -246,7 +267,10 @@ def get_hardware_identifiers():
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            mac_addresses = stdout.decode().strip().split('\n')
+            try:
+                mac_addresses = stdout.decode('utf-8').strip().split('\n')
+            except UnicodeDecodeError:
+                mac_addresses = stdout.decode('utf-8', errors='replace').strip().split('\n')
             if mac_addresses and mac_addresses[0]:
                 identifiers["mac"] = mac_addresses[0].replace(':', '-')
     except Exception as e:
@@ -260,7 +284,10 @@ def get_hardware_identifiers():
         )
         stdout, stderr = process.communicate()
         if process.returncode == 0:
-            bios_serial = stdout.decode().strip()
+            try:
+                bios_serial = stdout.decode('utf-8').strip()
+            except UnicodeDecodeError:
+                bios_serial = stdout.decode('utf-8', errors='replace').strip()
             if bios_serial and bios_serial.lower() not in ["none", "to be filled by o.e.m.", "default string"]:
                 identifiers["bios"] = bios_serial
     except Exception as e:
@@ -784,6 +811,9 @@ class MainWindow(QMainWindow):
         
         usb_selection_layout = QHBoxLayout()
         self.usb_combo = QComboBox()
+        
+        # Set the text direction for Hebrew
+        self.usb_combo.setLayoutDirection(Qt.RightToLeft)
         usb_selection_layout.addWidget(self.usb_combo)
         
         refresh_button = QPushButton("רענן")
@@ -894,36 +924,75 @@ class MainWindow(QMainWindow):
         self.usb_combo.clear()
         devices = []
         
-        command = ["powershell", "-Command", "Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DriveType=2\" | Select-Object DeviceID, VolumeName | Format-Table -AutoSize"]
+        command = ["powershell", "-Command", "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DriveType=2\" | ForEach-Object { Write-Output ($_.DeviceID + '|' + $_.VolumeName) }"]
         write_log(f"Command: {' '.join(command)}")
         
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
         
         if process.returncode == 0:
-            output = stdout.decode().strip().split("\n")
-            write_log(f"PowerShell output:\n{stdout.decode()}")
+            try:
+                output = stdout.decode('utf-8').strip().split("\n")
+            except UnicodeDecodeError:
+                # Handle Hebrew characters by using a more forgiving decode
+                output = stdout.decode('utf-8', errors='replace').strip().split("\n")
+            try:
+                decoded_output = stdout.decode('utf-8')
+            except UnicodeDecodeError:
+                decoded_output = stdout.decode('utf-8', errors='replace')
+            write_log(f"PowerShell output:\n{decoded_output}")
             
-            # Skip header lines (at least 2 lines: header and separator)
-            data_lines = [line.strip() for line in output if line.strip() and not line.startswith("DeviceID") and not line.startswith("---")]
-            
-            for line in data_lines:
-                # Extract DeviceID and VolumeName from the line
-                parts = line.strip().split()
-                if parts:
+            # Process each line which should be in the format "DeviceID|VolumeName"
+            for line in output:
+                if not line.strip():
+                    continue
+                    
+                # Try to split by the pipe character
+                parts = line.strip().split('|')
+                if len(parts) >= 2:
                     drive_letter = parts[0]
-                    if len(parts) > 1:
-                        volume_name = ' '.join(parts[1:])
+                    volume_name = parts[1]
+                    
+                    # If volume name is empty or contains replacement characters, try to get it directly
+                    if not volume_name or '�' in volume_name:
+                        try:
+                            # Try to get the volume name directly with a different encoding approach
+                            vol_cmd = ["powershell", "-Command", f"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='{drive_letter}'\" | Select-Object -ExpandProperty VolumeName)"]
+                            vol_process = subprocess.Popen(vol_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            vol_stdout, vol_stderr = vol_process.communicate()
+                            
+                            if vol_process.returncode == 0 and vol_stdout.strip():
+                                # Try different encodings for Hebrew text
+                                for encoding in ['cp1255', 'utf-8', 'utf-16', 'utf-8-sig']:
+                                    try:
+                                        volume_name = vol_stdout.decode(encoding).strip()
+                                        if volume_name and not '�' in volume_name:
+                                            break
+                                    except UnicodeDecodeError:
+                                        continue
+                        except Exception as e:
+                            write_log(f"Error getting volume name directly: {str(e)}")
+                    
+                    if volume_name:
                         devices.append(f"{volume_name} ({drive_letter})")
                     else:
                         devices.append(f"Unknown ({drive_letter})")
+                else:
+                    # If we can't parse the line properly, just add the drive letter
+                    if parts and parts[0]:
+                        devices.append(f"Unknown ({parts[0]})")
         else:
-            error_message = stderr.decode()
+            try:
+                error_message = stderr.decode('utf-8')
+            except UnicodeDecodeError:
+                error_message = stderr.decode('utf-8', errors='replace')
             write_log(f"Error detecting USB devices: {error_message}")
             QMessageBox.critical(self, "שגיאה", f"שגיאה בזיהוי התקני USB: {error_message}")
         
         if devices:
-            self.usb_combo.addItems(devices)
+            # Add items one by one to ensure proper display of Hebrew text
+            for device in devices:
+                self.usb_combo.addItem(device)
         else:
             self.usb_combo.addItem("לא נמצאו התקנים")
             write_log("No USB devices found")
@@ -948,7 +1017,10 @@ class MainWindow(QMainWindow):
                 
                 if process.returncode == 0:
                     try:
-                        serial_number = stdout.decode().strip()
+                        try:
+                            serial_number = stdout.decode('utf-8').strip()
+                        except UnicodeDecodeError:
+                            serial_number = stdout.decode('utf-8', errors='replace').strip()
                         if serial_number:
                             write_log(f"USB serial number: {serial_number}")
                             return serial_number
@@ -959,7 +1031,10 @@ class MainWindow(QMainWindow):
                         QMessageBox.critical(self, "שגיאה", "לא הצלחתי לקבל מספר סידורי")
                         return None
                 else:
-                    error_message = stderr.decode()
+                    try:
+                        error_message = stderr.decode('utf-8')
+                    except UnicodeDecodeError:
+                        error_message = stderr.decode('utf-8', errors='replace')
                     write_log(f"Error getting serial number: {error_message}")
                     QMessageBox.critical(self, "שגיאה", f"שגיאה: {error_message}")
                     return None
@@ -1021,6 +1096,15 @@ class MainWindow(QMainWindow):
         if process.returncode == 0:
             self.status_bar.showMessage("הקובץ הוצפן בהצלחה")
             QMessageBox.information(self, "הצלחה", "הקובץ הוצפן בהצלחה!")
+            
+            # Delete original file if setting is enabled
+            if self.config.get("delete_original", False):
+                try:
+                    os.remove(file_path)
+                    write_log(f"Original file deleted after encryption: {file_path}")
+                except Exception as e:
+                    write_log(f"Error deleting original file: {str(e)}")
+                    QMessageBox.warning(self, "אזהרה", f"לא ניתן למחוק את הקובץ המקורי: {str(e)}")
         else:
             try:
                 error_message = stderr.decode('utf-8')
@@ -1042,7 +1126,6 @@ class MainWindow(QMainWindow):
             return
         
         self.status_bar.showMessage("מפענח קובץ...")
-        
 
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
@@ -1065,6 +1148,15 @@ class MainWindow(QMainWindow):
         if process.returncode == 0:
             self.status_bar.showMessage("הקובץ פוענח בהצלחה")
             QMessageBox.information(self, "הצלחה", "הקובץ פוענח בהצלחה!")
+            
+            # Delete original file if setting is enabled
+            #if self.config.get("delete_original", False):
+            #    try:
+            #        os.remove(file_path)
+            #        write_log(f"Original file deleted after decryption: {file_path}")
+            #    except Exception as e:
+            #        write_log(f"Error deleting original file: {str(e)}")
+            #        QMessageBox.warning(self, "אזהרה", f"לא ניתן למחוק את הקובץ המקורי: {str(e)}")
         else:
             try:
                 error_message = stderr.decode('utf-8')
